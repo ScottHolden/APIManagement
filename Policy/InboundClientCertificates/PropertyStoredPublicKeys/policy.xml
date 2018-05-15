@@ -1,0 +1,31 @@
+<policies>
+    <inbound>
+        <!-- Process base policy -->
+        <base />
+        <!-- Pull in the 'validCerts property' -->
+        <set-variable name="validCerts" value="{{validCerts}}" />
+        <!-- Check if the certificate is valid -->
+        <choose>
+            <when condition="@{
+                return context.Request.Certificate == null || 
+                        context.Request.Certificate.NotAfter < DateTime.Now || 
+                        !context.Variables.GetValueOrDefault("validCerts", "")
+                            .Split(new char[] {',', ';', '\n', '\r'}, StringSplitOptions.RemoveEmptyEntries)
+                            .Any(c => c.Equals(context.Request.Certificate.Thumbprint, StringComparison.OrdinalIgnoreCase));
+                }">
+                <return-response>
+                    <set-status code="403" reason="Invalid client certificate" />
+                </return-response>
+            </when>
+        </choose>
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>

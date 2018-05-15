@@ -1,0 +1,68 @@
+<policies>
+    <inbound>
+        <!-- Process base policy -->
+        <base />
+        <!-- Grab keys from cache -->
+        <cache-lookup-value key="authCerts" default-value="" variable-name="validCerts" />
+        <!-- Check to see if we need to get keys from keyvault -->
+        <choose>
+            <when condition="@(string.IsNullOrEmpty(context.Variables.GetValueOrDefault("validCerts", "")))">
+                <!-- Setup the ADAL & KeyVault (could be set via properties) -->
+                <set-variable name="tenantId" value="--> Azure AD Tenant ID Here <--" />
+                <set-variable name="clientId" value="--> Azure AD Application Client ID Here <--" />
+                <set-variable name="clientKey" value="--> Azure AD Application Client Key/Secret Here <--" />
+                <set-variable name="keyVaultName" value="--> KeyVault Name Here <--" />
+                <set-variable name="keyVaultSecretName" value="--> KeyVault Secret Name Here <--" />
+                <!-- Request Bearer Token via ADAL -->
+                <send-request mode="new" response-variable-name="adalResponse">
+                    <set-url>@($"https://login.microsoftonline.com/{(string)context.Variables["tenantId"]}/oauth2/token")</set-url>
+                    <set-method>POST</set-method>
+                    <set-header name="Accept" exists-action="override">
+                        <value>application/json</value>
+                    </set-header>
+                    <set-header name="Content-Type" exists-action="override">
+                        <value>application/x-www-form-urlencoded</value>
+                    </set-header>
+                    <set-body>@($"grant_type=client_credentials&resource=https%3A%2F%2Fvault.azure.net&client_id={(string)context.Variables["clientId"]}&client_secret={(string)context.Variables["clientKey"]}")</set-body>
+                </send-request>
+                <set-variable name="kvAccessToken" value="@(((IResponse)context.Variables["adalResponse"]).Body.As<JObject>()["access_token"].ToString())" />
+                <!-- Get Secret Value from KeyVault -->
+                <send-request mode="new" response-variable-name="keyVaultResponse">
+                    <set-url>@($"https://{(string)context.Variables["keyVaultName"]}.vault.azure.net/secrets/{(string)context.Variables["keyVaultSecretName"]}?api-version=2016-10-01")</set-url>
+                    <set-method>GET</set-method>
+                    <set-header name="Accept" exists-action="override">
+                        <value>application/json</value>
+                    </set-header>
+                    <set-header name="Authorization" exists-action="override">
+                        <value>@($"Bearer {(string)context.Variables["kvAccessToken"]}")</value>
+                    </set-header>
+                </send-request>
+                <set-variable name="validCerts" value="@(((IResponse)context.Variables["keyVaultResponse"]).Body.As<JObject>()["value"].ToString())" />
+                <cache-store-value key="authCerts" value="@((string)context.Variables["validCerts"])" duration="300" />
+            </when>
+        </choose>
+        <!-- Check if the certificate is valid -->
+        <choose>
+            <when condition="@{
+                return context.Request.Certificate == null || 
+                        context.Request.Certificate.NotAfter < DateTime.Now || 
+                        !context.Variables.GetValueOrDefault("validCerts", "")
+                            .Split(new char[] {',', ';', '\n', '\r'}, StringSplitOptions.RemoveEmptyEntries)
+                            .Any(c => c.Equals(context.Request.Certificate.Thumbprint, StringComparison.OrdinalIgnoreCase));
+                }">
+                <return-response>
+                    <set-status code="403" reason="Invalid client certificate" />
+                </return-response>
+            </when>
+        </choose>
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>

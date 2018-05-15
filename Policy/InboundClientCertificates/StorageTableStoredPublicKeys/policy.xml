@@ -1,0 +1,50 @@
+<policies>
+    <inbound>
+        <!-- Process base policy -->
+        <base />
+        <!-- Grab keys from cache -->
+        <cache-lookup-value key="authCerts" default-value="" variable-name="validCerts" />
+        <!-- Check to see if we need to get keys from keyvault -->
+        <choose>
+            <when condition="@(string.IsNullOrEmpty(context.Variables.GetValueOrDefault("validCerts", "")))">
+                <!-- Setup the table access (This could be via properties) -->
+                <set-variable name="storageAccountName" value="--> Storage Account Name Here <--" />
+                <set-variable name="tableName" value="--> Table Name Here <--" />
+                <set-variable name="partitionKey" value="--> Table Partition Key Here <--" />
+                <set-variable name="storageAccountSASToken" value="--> SAS Token Signed for Read/Query Here <--" />
+                <send-request mode="new" response-variable-name="tableStorageResponse">
+                    <set-url>@($"https://{(string)context.Variables["storageAccountName"]}.table.core.windows.net/{(string)context.Variables["tableName"]}(){(string)context.Variables["storageAccountSASToken"]}&$filter=PartitionKey%20eq%20%27{(string)context.Variables["partitionKey"]}%27&$select=RowKey")</set-url>
+                    <set-method>GET</set-method>
+                    <set-header name="Accept" exists-action="override">
+                        <value>application/json</value>
+                    </set-header>
+                </send-request>
+                <set-variable name="validCerts" value="@(string.Join(";", ((IResponse)context.Variables["tableStorageResponse"]).Body.As<JObject>()["value"].Select(x=>x["RowKey"])))" />
+                <cache-store-value key="authCerts" value="@((string)context.Variables["validCerts"])" duration="300" />
+            </when>
+        </choose>
+        <!-- Check if the certificate is valid -->
+        <choose>
+            <when condition="@{
+                return context.Request.Certificate == null || 
+                        context.Request.Certificate.NotAfter < DateTime.Now || 
+                        !context.Variables.GetValueOrDefault("validCerts", "")
+                            .Split(new char[] {',', ';', '\n', '\r'}, StringSplitOptions.RemoveEmptyEntries)
+                            .Any(c => c.Equals(context.Request.Certificate.Thumbprint, StringComparison.OrdinalIgnoreCase));
+                }">
+                <return-response>
+                    <set-status code="403" reason="Invalid client certificate" />
+                </return-response>
+            </when>
+        </choose>
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>
