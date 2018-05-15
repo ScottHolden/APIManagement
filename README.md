@@ -4,4 +4,4 @@
 https://azure.microsoft.com/en-au/services/api-management/
 
 
-- [Inbound Client Certificate Policies](./InboundClientCertificates)
+- [Inbound Client Certificate Policies](./Policy/InboundClientCertificates)
