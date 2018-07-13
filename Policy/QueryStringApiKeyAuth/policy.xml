@@ -4,7 +4,7 @@
         <!-- Set the expected api key. This could be pulled in as a named value, eg, {{ExpectedApiKey}}  -->
         <set-variable name="expectedApiKey" value="abc123" />
 
-        <!-- Check if the certificate is valid -->
+        <!-- Check if the the api key is valid -->
         <choose>
             <when condition="@{
                 // Pull out our expected key from the variable above
